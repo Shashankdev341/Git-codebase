@@ -319,6 +319,32 @@ function ArchitecturePanel() {
   const [draft, setDraft] = useState<string>(ARCHITECTURE_CHART);
   const [editorOpen, setEditorOpen] = useState(false);
   const [liveEdit, setLiveEdit] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load snapshots from localStorage after mount (SSR-safe)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SNAPSHOTS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Snapshot[];
+        if (Array.isArray(parsed)) setSnapshots(parsed);
+      }
+    } catch {
+      /* ignore */
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(snapshots));
+    } catch {
+      /* ignore */
+    }
+  }, [snapshots, hydrated]);
 
   // Debounced live rerender
   useEffect(() => {
@@ -326,6 +352,25 @@ function ArchitecturePanel() {
     const t = setTimeout(() => setChart(draft), 400);
     return () => clearTimeout(t);
   }, [draft, liveEdit]);
+
+  const saveSnapshot = (label?: string) => {
+    const snap: Snapshot = {
+      id: crypto.randomUUID(),
+      label: (label ?? "").trim() || `Snapshot ${snapshots.length + 1}`,
+      chart: draft,
+      createdAt: Date.now(),
+    };
+    setSnapshots((s) => [snap, ...s]);
+  };
+
+  const revertTo = (snap: Snapshot) => {
+    setDraft(snap.chart);
+    setChart(snap.chart);
+  };
+
+  const deleteSnapshot = (id: string) => {
+    setSnapshots((s) => s.filter((x) => x.id !== id));
+  };
 
   return (
     <div className="glass flex h-[70vh] min-h-[520px] flex-col rounded-3xl p-5">
@@ -336,6 +381,20 @@ function ArchitecturePanel() {
         </div>
         <div className="flex items-center gap-2">
           <span className="hidden text-xs text-slate-400 sm:inline">Rendered with Mermaid.js</span>
+          <button
+            onClick={() => setHistoryOpen((v) => !v)}
+            className={`glass relative inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+              historyOpen ? "text-cyan-300 glow-cyan" : "text-slate-200 hover:text-cyan-300"
+            }`}
+          >
+            <History className="h-3.5 w-3.5" />
+            History
+            {snapshots.length > 0 && (
+              <span className="ml-0.5 rounded-full bg-cyan-400/20 px-1.5 text-[10px] font-semibold text-cyan-200">
+                {snapshots.length}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setEditorOpen((v) => !v)}
             className={`glass inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
@@ -348,7 +407,17 @@ function ArchitecturePanel() {
         </div>
       </div>
 
-      <div className={`grid flex-1 min-h-0 gap-3 ${editorOpen ? "md:grid-cols-[1fr_1fr]" : "grid-cols-1"}`}>
+      <div
+        className={`grid flex-1 min-h-0 gap-3 ${
+          editorOpen && historyOpen
+            ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,240px)]"
+            : editorOpen
+              ? "md:grid-cols-[1fr_1fr]"
+              : historyOpen
+                ? "md:grid-cols-[1fr_minmax(0,260px)]"
+                : "grid-cols-1"
+        }`}
+      >
         {editorOpen && (
           <MermaidEditor
             value={draft}
@@ -361,9 +430,19 @@ function ArchitecturePanel() {
               setChart(ARCHITECTURE_CHART);
             }}
             onClose={() => setEditorOpen(false)}
+            onSaveSnapshot={saveSnapshot}
           />
         )}
         <MermaidDiagram chart={chart} />
+        {historyOpen && (
+          <HistoryPanel
+            snapshots={snapshots}
+            onSave={() => saveSnapshot()}
+            onRevert={revertTo}
+            onDelete={deleteSnapshot}
+            onClose={() => setHistoryOpen(false)}
+          />
+        )}
       </div>
 
       <div className="mt-4 grid grid-cols-4 gap-2">
