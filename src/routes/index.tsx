@@ -19,6 +19,9 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Download,
+  FileImage,
+  FileCode2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
