@@ -26,6 +26,10 @@ import {
   Play,
   RotateCcw,
   X,
+  History,
+  Save,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -56,6 +60,15 @@ type ChatMessage = {
   role: "user" | "ai";
   content: string;
 };
+
+type Snapshot = {
+  id: string;
+  label: string;
+  chart: string;
+  createdAt: number;
+};
+
+const SNAPSHOTS_KEY = "codesight:mermaid-snapshots:v1";
 
 const LOADING_STEPS = [
   { label: "Cloning repository...", icon: Github },
@@ -315,6 +328,32 @@ function ArchitecturePanel() {
   const [draft, setDraft] = useState<string>(ARCHITECTURE_CHART);
   const [editorOpen, setEditorOpen] = useState(false);
   const [liveEdit, setLiveEdit] = useState(true);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [snapshots, setSnapshots] = useState<Snapshot[]>([]);
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load snapshots from localStorage after mount (SSR-safe)
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(SNAPSHOTS_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as Snapshot[];
+        if (Array.isArray(parsed)) setSnapshots(parsed);
+      }
+    } catch {
+      /* ignore */
+    }
+    setHydrated(true);
+  }, []);
+
+  useEffect(() => {
+    if (!hydrated) return;
+    try {
+      localStorage.setItem(SNAPSHOTS_KEY, JSON.stringify(snapshots));
+    } catch {
+      /* ignore */
+    }
+  }, [snapshots, hydrated]);
 
   // Debounced live rerender
   useEffect(() => {
@@ -322,6 +361,25 @@ function ArchitecturePanel() {
     const t = setTimeout(() => setChart(draft), 400);
     return () => clearTimeout(t);
   }, [draft, liveEdit]);
+
+  const saveSnapshot = (label?: string) => {
+    const snap: Snapshot = {
+      id: crypto.randomUUID(),
+      label: (label ?? "").trim() || `Snapshot ${snapshots.length + 1}`,
+      chart: draft,
+      createdAt: Date.now(),
+    };
+    setSnapshots((s) => [snap, ...s]);
+  };
+
+  const revertTo = (snap: Snapshot) => {
+    setDraft(snap.chart);
+    setChart(snap.chart);
+  };
+
+  const deleteSnapshot = (id: string) => {
+    setSnapshots((s) => s.filter((x) => x.id !== id));
+  };
 
   return (
     <div className="glass flex h-[70vh] min-h-[520px] flex-col rounded-3xl p-5">
@@ -332,6 +390,20 @@ function ArchitecturePanel() {
         </div>
         <div className="flex items-center gap-2">
           <span className="hidden text-xs text-slate-400 sm:inline">Rendered with Mermaid.js</span>
+          <button
+            onClick={() => setHistoryOpen((v) => !v)}
+            className={`glass relative inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+              historyOpen ? "text-cyan-300 glow-cyan" : "text-slate-200 hover:text-cyan-300"
+            }`}
+          >
+            <History className="h-3.5 w-3.5" />
+            History
+            {snapshots.length > 0 && (
+              <span className="ml-0.5 rounded-full bg-cyan-400/20 px-1.5 text-[10px] font-semibold text-cyan-200">
+                {snapshots.length}
+              </span>
+            )}
+          </button>
           <button
             onClick={() => setEditorOpen((v) => !v)}
             className={`glass inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
@@ -344,7 +416,17 @@ function ArchitecturePanel() {
         </div>
       </div>
 
-      <div className={`grid flex-1 min-h-0 gap-3 ${editorOpen ? "md:grid-cols-[1fr_1fr]" : "grid-cols-1"}`}>
+      <div
+        className={`grid flex-1 min-h-0 gap-3 ${
+          editorOpen && historyOpen
+            ? "md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,240px)]"
+            : editorOpen
+              ? "md:grid-cols-[1fr_1fr]"
+              : historyOpen
+                ? "md:grid-cols-[1fr_minmax(0,260px)]"
+                : "grid-cols-1"
+        }`}
+      >
         {editorOpen && (
           <MermaidEditor
             value={draft}
@@ -357,9 +439,19 @@ function ArchitecturePanel() {
               setChart(ARCHITECTURE_CHART);
             }}
             onClose={() => setEditorOpen(false)}
+            onSaveSnapshot={saveSnapshot}
           />
         )}
         <MermaidDiagram chart={chart} />
+        {historyOpen && (
+          <HistoryPanel
+            snapshots={snapshots}
+            onSave={() => saveSnapshot()}
+            onRevert={revertTo}
+            onDelete={deleteSnapshot}
+            onClose={() => setHistoryOpen(false)}
+          />
+        )}
       </div>
 
       <div className="mt-4 grid grid-cols-4 gap-2">
@@ -387,6 +479,7 @@ function MermaidEditor({
   onApply,
   onReset,
   onClose,
+  onSaveSnapshot,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -395,6 +488,7 @@ function MermaidEditor({
   onApply: () => void;
   onReset: () => void;
   onClose: () => void;
+  onSaveSnapshot: (label?: string) => void;
 }) {
   return (
     <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-slate-950/60">
@@ -403,13 +497,23 @@ function MermaidEditor({
           <FileCode2 className="h-3.5 w-3.5 text-cyan-300" />
           <span className="text-xs font-semibold text-white">Mermaid source</span>
         </div>
-        <button
-          onClick={onClose}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-white/5 hover:text-cyan-300"
-          aria-label="Close editor"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onSaveSnapshot()}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-slate-300 transition hover:bg-white/5 hover:text-cyan-300"
+            title="Save current source as a snapshot"
+          >
+            <Save className="h-3 w-3" />
+            Save
+          </button>
+          <button
+            onClick={onClose}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-white/5 hover:text-cyan-300"
+            aria-label="Close editor"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       <textarea
         value={value}
@@ -445,6 +549,100 @@ function MermaidEditor({
             Rerender
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function HistoryPanel({
+  snapshots,
+  onSave,
+  onRevert,
+  onDelete,
+  onClose,
+}: {
+  snapshots: Snapshot[];
+  onSave: () => void;
+  onRevert: (snap: Snapshot) => void;
+  onDelete: (id: string) => void;
+  onClose: () => void;
+}) {
+  const fmt = (t: number) => {
+    const d = new Date(t);
+    return d.toLocaleString(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+  return (
+    <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-slate-950/60">
+      <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <History className="h-3.5 w-3.5 text-cyan-300" />
+          <span className="text-xs font-semibold text-white">Version history</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-white/5 hover:text-cyan-300"
+          aria-label="Close history"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="border-b border-white/5 p-2">
+        <button
+          onClick={onSave}
+          className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-cyan-400/10 px-3 py-1.5 text-[11px] font-semibold text-cyan-200 transition hover:bg-cyan-400/20"
+        >
+          <Save className="h-3 w-3" />
+          Save current version
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto p-2">
+        {snapshots.length === 0 ? (
+          <div className="px-2 py-6 text-center text-[11px] text-slate-500">
+            No snapshots yet.
+            <br />
+            Save a version to revert later.
+          </div>
+        ) : (
+          <ul className="space-y-1.5">
+            {snapshots.map((s) => (
+              <li
+                key={s.id}
+                className="group rounded-lg border border-white/5 bg-white/[0.02] p-2 transition hover:border-cyan-300/30"
+              >
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[12px] font-medium text-white">{s.label}</p>
+                    <p className="text-[10px] text-slate-400">{fmt(s.createdAt)}</p>
+                  </div>
+                  <div className="flex items-center gap-0.5 opacity-70 transition group-hover:opacity-100">
+                    <button
+                      onClick={() => onRevert(s)}
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-slate-300 hover:bg-cyan-400/15 hover:text-cyan-300"
+                      title="Revert to this version"
+                    >
+                      <Undo2 className="h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      onClick={() => onDelete(s.id)}
+                      className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-red-500/15 hover:text-red-300"
+                      title="Delete snapshot"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                </div>
+                <pre className="mt-1.5 max-h-16 overflow-hidden truncate whitespace-pre-wrap break-all rounded bg-slate-950/60 px-2 py-1 font-mono text-[10px] leading-snug text-slate-400">
+                  {s.chart.split("\n").slice(0, 3).join("\n")}
+                </pre>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     </div>
   );
