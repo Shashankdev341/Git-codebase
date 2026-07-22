@@ -518,4 +518,3 @@ function Message({ message }: { message: ChatMessage }) {
     </div>
   );
 }
-}
