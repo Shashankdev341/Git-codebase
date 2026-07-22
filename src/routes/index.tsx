@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { Mermaid } from "mermaid";
 import {
   Waves,
   Sparkles,
@@ -364,8 +365,13 @@ const ARCHITECTURE_CHART = `graph TD
 `;
 
 let mermaidInitialized = false;
-function ensureMermaidInit() {
-  if (mermaidInitialized) return;
+let mermaidPromise: Promise<Mermaid> | null = null;
+async function getMermaid(): Promise<Mermaid> {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then((m) => m.default);
+  }
+  const mermaid = await mermaidPromise;
+  if (mermaidInitialized) return mermaid;
   mermaid.initialize({
     startOnLoad: false,
     theme: "base",
@@ -393,6 +399,7 @@ function ensureMermaidInit() {
     },
   });
   mermaidInitialized = true;
+  return mermaid;
 }
 
 function MermaidDiagram({ chart }: { chart: string }) {
@@ -405,10 +412,9 @@ function MermaidDiagram({ chart }: { chart: string }) {
 
   useEffect(() => {
     let cancelled = false;
-    ensureMermaidInit();
-    mermaid
-      .render(id, chart)
-      .then(({ svg }) => {
+    getMermaid()
+      .then((mermaid) => mermaid.render(id, chart))
+      .then(({ svg }: { svg: string }) => {
         if (!cancelled) setSvg(svg);
       })
       .catch((err: unknown) => {
