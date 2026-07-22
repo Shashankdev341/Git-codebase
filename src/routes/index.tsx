@@ -19,6 +19,9 @@ import {
   ZoomIn,
   ZoomOut,
   Maximize2,
+  Download,
+  FileImage,
+  FileCode2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -443,6 +446,88 @@ function MermaidDiagram({ chart }: { chart: string }) {
     setPan({ x: 0, y: 0 });
   };
 
+  const [exportOpen, setExportOpen] = useState(false);
+
+  const buildExportSvg = (): string | null => {
+    if (!svg) return null;
+    // Ensure xmlns is present and background is set for downloaded file
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(svg, "image/svg+xml");
+    const svgEl = doc.documentElement as unknown as SVGSVGElement;
+    svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
+    if (!svgEl.getAttribute("xmlns:xlink")) {
+      svgEl.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
+    }
+    // Add a solid dark background rect so PNG exports aren't transparent
+    const viewBox = svgEl.getAttribute("viewBox");
+    let w = svgEl.getAttribute("width") ?? "";
+    let h = svgEl.getAttribute("height") ?? "";
+    if (viewBox) {
+      const [, , vw, vh] = viewBox.split(/\s+/).map(Number);
+      if (!w) w = String(vw);
+      if (!h) h = String(vh);
+      svgEl.setAttribute("width", String(vw));
+      svgEl.setAttribute("height", String(vh));
+    }
+    const bg = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
+    bg.setAttribute("width", "100%");
+    bg.setAttribute("height", "100%");
+    bg.setAttribute("fill", "#020617");
+    svgEl.insertBefore(bg, svgEl.firstChild);
+    return new XMLSerializer().serializeToString(svgEl);
+  };
+
+  const triggerDownload = (blob: Blob, filename: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
+
+  const exportSvg = () => {
+    const out = buildExportSvg();
+    if (!out) return;
+    triggerDownload(new Blob([out], { type: "image/svg+xml" }), "architecture.svg");
+    setExportOpen(false);
+  };
+
+  const exportPng = async () => {
+    const out = buildExportSvg();
+    if (!out) return;
+    const svgBlob = new Blob([out], { type: "image/svg+xml;charset=utf-8" });
+    const url = URL.createObjectURL(svgBlob);
+    try {
+      const img = new Image();
+      img.crossOrigin = "anonymous";
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("image load failed"));
+        img.src = url;
+      });
+      const scale = 2;
+      const w = (img.naturalWidth || 1200) * scale;
+      const h = (img.naturalHeight || 800) * scale;
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      ctx.fillStyle = "#020617";
+      ctx.fillRect(0, 0, w, h);
+      ctx.drawImage(img, 0, 0, w, h);
+      canvas.toBlob((blob) => {
+        if (blob) triggerDownload(blob, "architecture.png");
+      }, "image/png");
+    } finally {
+      URL.revokeObjectURL(url);
+      setExportOpen(false);
+    }
+  };
+
   return (
     <div className="relative flex-1 overflow-hidden rounded-2xl border border-white/5 bg-slate-950/40">
       <div
@@ -505,6 +590,37 @@ function MermaidDiagram({ chart }: { chart: string }) {
         >
           <Maximize2 className="h-3.5 w-3.5" />
         </button>
+      </div>
+
+      <div className="absolute right-3 top-3">
+        <div className="relative">
+          <button
+            onClick={() => setExportOpen((v) => !v)}
+            disabled={!svg}
+            className="glass inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-medium text-slate-200 transition hover:text-cyan-300 disabled:opacity-40"
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export
+          </button>
+          {exportOpen && (
+            <div className="glass-strong absolute right-0 top-full mt-2 w-44 overflow-hidden rounded-xl border border-white/10 py-1 text-xs shadow-xl">
+              <button
+                onClick={exportSvg}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-200 transition hover:bg-cyan-400/10 hover:text-cyan-300"
+              >
+                <FileCode2 className="h-3.5 w-3.5" />
+                Download SVG
+              </button>
+              <button
+                onClick={exportPng}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-slate-200 transition hover:bg-cyan-400/10 hover:text-cyan-300"
+              >
+                <FileImage className="h-3.5 w-3.5" />
+                Download PNG (2x)
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
