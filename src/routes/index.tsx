@@ -26,6 +26,10 @@ import {
   Play,
   RotateCcw,
   X,
+  History,
+  Save,
+  Trash2,
+  Undo2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
