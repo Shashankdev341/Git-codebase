@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { Mermaid } from "mermaid";
 import {
   Waves,
   Sparkles,
@@ -15,6 +16,9 @@ import {
   Shield,
   Layers,
   Code2,
+  ZoomIn,
+  ZoomOut,
+  Maximize2,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -307,20 +311,10 @@ function ArchitecturePanel() {
           <Network className="h-4 w-4 text-cyan-300" />
           <h2 className="text-sm font-semibold text-white">Architecture Map</h2>
         </div>
-        <span className="text-xs text-slate-400">Mermaid.js placeholder</span>
+        <span className="text-xs text-slate-400">Rendered with Mermaid.js</span>
       </div>
 
-      <div className="relative flex-1 overflow-hidden rounded-2xl border border-white/5 bg-slate-950/40">
-        <div
-          className="absolute inset-0 opacity-40"
-          style={{
-            backgroundImage:
-              "radial-gradient(circle at 1px 1px, rgba(34,211,238,0.25) 1px, transparent 0)",
-            backgroundSize: "24px 24px",
-          }}
-        />
-        <ArchitectureGraph />
-      </div>
+      <MermaidDiagram chart={ARCHITECTURE_CHART} />
 
       <div className="mt-4 grid grid-cols-4 gap-2">
         {[
@@ -339,66 +333,179 @@ function ArchitecturePanel() {
   );
 }
 
-function ArchitectureGraph() {
-  const nodes = [
-    { id: "fe", label: "Frontend", icon: Layers, x: 12, y: 18, color: "cyan" },
-    { id: "api", label: "API Gateway", icon: Code2, x: 50, y: 12, color: "sky" },
-    { id: "auth", label: "Auth", icon: Shield, x: 84, y: 30, color: "teal" },
-    { id: "svc", label: "Services", icon: Sparkles, x: 30, y: 58, color: "cyan" },
-    { id: "db", label: "Database", icon: Database, x: 70, y: 72, color: "sky" },
-  ] as const;
+const ARCHITECTURE_CHART = `graph TD
+  U([User])
+  FE[Frontend<br/>Next.js + React]
+  API{{API Gateway}}
+  AUTH[Auth Service]
+  SVC[Core Services]
+  AI[AI Analyzer]
+  CACHE[(Redis Cache)]
+  DB[(PostgreSQL)]
 
-  const edges: [string, string][] = [
-    ["fe", "api"],
-    ["api", "auth"],
-    ["api", "svc"],
-    ["svc", "db"],
-    ["auth", "db"],
-  ];
+  U --> FE
+  FE --> API
+  API --> AUTH
+  API --> SVC
+  API --> AI
+  SVC --> CACHE
+  SVC --> DB
+  AUTH --> DB
+  AI --> CACHE
 
-  const pos = Object.fromEntries(nodes.map((n) => [n.id, n])) as Record<string, (typeof nodes)[number]>;
+  classDef entry fill:#0e7490,stroke:#22d3ee,stroke-width:2px,color:#ecfeff;
+  classDef service fill:#0c4a6e,stroke:#38bdf8,stroke-width:1.5px,color:#e0f2fe;
+  classDef data fill:#164e63,stroke:#67e8f9,stroke-width:1.5px,color:#ecfeff;
+  classDef ai fill:#155e75,stroke:#22d3ee,stroke-width:2px,color:#cffafe;
+
+  class U,FE entry;
+  class API,AUTH,SVC service;
+  class DB,CACHE data;
+  class AI ai;
+`;
+
+let mermaidInitialized = false;
+let mermaidPromise: Promise<Mermaid> | null = null;
+async function getMermaid(): Promise<Mermaid> {
+  if (!mermaidPromise) {
+    mermaidPromise = import("mermaid").then((m) => m.default);
+  }
+  const mermaid = await mermaidPromise;
+  if (mermaidInitialized) return mermaid;
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: "base",
+    securityLevel: "loose",
+    fontFamily: "inherit",
+    themeVariables: {
+      background: "transparent",
+      primaryColor: "#0c4a6e",
+      primaryTextColor: "#e0f2fe",
+      primaryBorderColor: "#22d3ee",
+      lineColor: "#22d3ee",
+      secondaryColor: "#155e75",
+      tertiaryColor: "#082f49",
+      textColor: "#e2e8f0",
+      mainBkg: "#0c4a6e",
+      nodeBorder: "#22d3ee",
+      clusterBkg: "rgba(15,23,42,0.4)",
+      clusterBorder: "rgba(34,211,238,0.3)",
+      edgeLabelBackground: "rgba(2,6,23,0.8)",
+    },
+    flowchart: {
+      curve: "basis",
+      padding: 20,
+      htmlLabels: true,
+    },
+  });
+  mermaidInitialized = true;
+  return mermaid;
+}
+
+function MermaidDiagram({ chart }: { chart: string }) {
+  const [svg, setSvg] = useState<string>("");
+  const [error, setError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState({ x: 0, y: 0 });
+  const dragRef = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  const id = useMemo(() => `mmd-${Math.random().toString(36).slice(2)}`, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    getMermaid()
+      .then((mermaid) => mermaid.render(id, chart))
+      .then(({ svg }: { svg: string }) => {
+        if (!cancelled) setSvg(svg);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chart, id]);
+
+  const onMouseDown = (e: React.MouseEvent) => {
+    dragRef.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+  };
+  const onMouseMove = (e: React.MouseEvent) => {
+    if (!dragRef.current) return;
+    setPan({
+      x: dragRef.current.px + (e.clientX - dragRef.current.x),
+      y: dragRef.current.py + (e.clientY - dragRef.current.y),
+    });
+  };
+  const endDrag = () => {
+    dragRef.current = null;
+  };
+  const reset = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
 
   return (
-    <div className="relative h-full w-full">
-      <svg className="absolute inset-0 h-full w-full" viewBox="0 0 100 100" preserveAspectRatio="none">
-        <defs>
-          <linearGradient id="edge" x1="0" x2="1">
-            <stop offset="0%" stopColor="#22d3ee" stopOpacity="0.7" />
-            <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0.4" />
-          </linearGradient>
-        </defs>
-        {edges.map(([a, b], i) => {
-          const p1 = pos[a];
-          const p2 = pos[b];
-          return (
-            <line
-              key={i}
-              x1={p1.x + 6}
-              y1={p1.y + 4}
-              x2={p2.x + 6}
-              y2={p2.y + 4}
-              stroke="url(#edge)"
-              strokeWidth={0.3}
-              strokeDasharray="1 1"
-            />
-          );
-        })}
-      </svg>
+    <div className="relative flex-1 overflow-hidden rounded-2xl border border-white/5 bg-slate-950/40">
+      <div
+        className="absolute inset-0 opacity-40"
+        style={{
+          backgroundImage:
+            "radial-gradient(circle at 1px 1px, rgba(34,211,238,0.25) 1px, transparent 0)",
+          backgroundSize: "24px 24px",
+        }}
+      />
 
-      {nodes.map((n) => (
+      <div
+        className="absolute inset-0 cursor-grab active:cursor-grabbing"
+        onMouseDown={onMouseDown}
+        onMouseMove={onMouseMove}
+        onMouseUp={endDrag}
+        onMouseLeave={endDrag}
+      >
         <div
-          key={n.id}
-          className="absolute -translate-x-1/2 -translate-y-1/2"
-          style={{ left: `${n.x + 6}%`, top: `${n.y + 4}%` }}
-        >
-          <div className="glass flex items-center gap-2 rounded-xl px-3 py-2 shadow-[0_0_24px_rgba(34,211,238,0.15)]">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-cyan-400/15 text-cyan-300">
-              <n.icon className="h-3.5 w-3.5" />
-            </div>
-            <span className="text-xs font-medium text-white">{n.label}</span>
-          </div>
+          className="flex h-full w-full items-center justify-center transition-transform duration-75 [&_svg]:!max-w-none [&_svg]:h-auto [&_svg]:w-auto"
+          style={{ transform: `translate(${pan.x}px, ${pan.y}px) scale(${zoom})` }}
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+      </div>
+
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center p-6 text-center text-xs text-red-300">
+          Failed to render diagram: {error}
         </div>
-      ))}
+      )}
+
+      {!svg && !error && (
+        <div className="absolute inset-0 flex items-center justify-center gap-2 text-xs text-slate-400">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Rendering diagram...
+        </div>
+      )}
+
+      <div className="glass absolute bottom-3 right-3 flex items-center gap-1 rounded-xl p-1">
+        <button
+          onClick={() => setZoom((z) => Math.max(0.4, z - 0.15))}
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-300 hover:bg-white/5 hover:text-cyan-300"
+          aria-label="Zoom out"
+        >
+          <ZoomOut className="h-3.5 w-3.5" />
+        </button>
+        <span className="w-10 text-center text-[10px] tabular-nums text-slate-400">
+          {Math.round(zoom * 100)}%
+        </span>
+        <button
+          onClick={() => setZoom((z) => Math.min(3, z + 0.15))}
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-300 hover:bg-white/5 hover:text-cyan-300"
+          aria-label="Zoom in"
+        >
+          <ZoomIn className="h-3.5 w-3.5" />
+        </button>
+        <button
+          onClick={reset}
+          className="flex h-7 w-7 items-center justify-center rounded-lg text-slate-300 hover:bg-white/5 hover:text-cyan-300"
+          aria-label="Reset view"
+        >
+          <Maximize2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
     </div>
   );
 }
