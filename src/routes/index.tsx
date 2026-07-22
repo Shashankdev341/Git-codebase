@@ -61,6 +61,15 @@ type ChatMessage = {
   content: string;
 };
 
+type Snapshot = {
+  id: string;
+  label: string;
+  chart: string;
+  createdAt: number;
+};
+
+const SNAPSHOTS_KEY = "codesight:mermaid-snapshots:v1";
+
 const LOADING_STEPS = [
   { label: "Cloning repository...", icon: Github },
   { label: "Mapping file structures...", icon: Layers },
@@ -470,6 +479,7 @@ function MermaidEditor({
   onApply,
   onReset,
   onClose,
+  onSaveSnapshot,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -478,6 +488,7 @@ function MermaidEditor({
   onApply: () => void;
   onReset: () => void;
   onClose: () => void;
+  onSaveSnapshot: (label?: string) => void;
 }) {
   return (
     <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-slate-950/60">
@@ -486,13 +497,23 @@ function MermaidEditor({
           <FileCode2 className="h-3.5 w-3.5 text-cyan-300" />
           <span className="text-xs font-semibold text-white">Mermaid source</span>
         </div>
-        <button
-          onClick={onClose}
-          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-white/5 hover:text-cyan-300"
-          aria-label="Close editor"
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => onSaveSnapshot()}
+            className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[11px] text-slate-300 transition hover:bg-white/5 hover:text-cyan-300"
+            title="Save current source as a snapshot"
+          >
+            <Save className="h-3 w-3" />
+            Save
+          </button>
+          <button
+            onClick={onClose}
+            className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-white/5 hover:text-cyan-300"
+            aria-label="Close editor"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
       </div>
       <textarea
         value={value}
