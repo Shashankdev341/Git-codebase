@@ -22,6 +22,10 @@ import {
   Download,
   FileImage,
   FileCode2,
+  Pencil,
+  Play,
+  RotateCcw,
+  X,
 } from "lucide-react";
 
 export const Route = createFileRoute("/")({
@@ -307,6 +311,18 @@ function Dashboard({ url }: { url: string }) {
 }
 
 function ArchitecturePanel() {
+  const [chart, setChart] = useState<string>(ARCHITECTURE_CHART);
+  const [draft, setDraft] = useState<string>(ARCHITECTURE_CHART);
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [liveEdit, setLiveEdit] = useState(true);
+
+  // Debounced live rerender
+  useEffect(() => {
+    if (!liveEdit) return;
+    const t = setTimeout(() => setChart(draft), 400);
+    return () => clearTimeout(t);
+  }, [draft, liveEdit]);
+
   return (
     <div className="glass flex h-[70vh] min-h-[520px] flex-col rounded-3xl p-5">
       <div className="mb-4 flex items-center justify-between">
@@ -314,10 +330,37 @@ function ArchitecturePanel() {
           <Network className="h-4 w-4 text-cyan-300" />
           <h2 className="text-sm font-semibold text-white">Architecture Map</h2>
         </div>
-        <span className="text-xs text-slate-400">Rendered with Mermaid.js</span>
+        <div className="flex items-center gap-2">
+          <span className="hidden text-xs text-slate-400 sm:inline">Rendered with Mermaid.js</span>
+          <button
+            onClick={() => setEditorOpen((v) => !v)}
+            className={`glass inline-flex items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition ${
+              editorOpen ? "text-cyan-300 glow-cyan" : "text-slate-200 hover:text-cyan-300"
+            }`}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            {editorOpen ? "Close editor" : "Edit code"}
+          </button>
+        </div>
       </div>
 
-      <MermaidDiagram chart={ARCHITECTURE_CHART} />
+      <div className={`grid flex-1 min-h-0 gap-3 ${editorOpen ? "md:grid-cols-[1fr_1fr]" : "grid-cols-1"}`}>
+        {editorOpen && (
+          <MermaidEditor
+            value={draft}
+            onChange={setDraft}
+            liveEdit={liveEdit}
+            setLiveEdit={setLiveEdit}
+            onApply={() => setChart(draft)}
+            onReset={() => {
+              setDraft(ARCHITECTURE_CHART);
+              setChart(ARCHITECTURE_CHART);
+            }}
+            onClose={() => setEditorOpen(false)}
+          />
+        )}
+        <MermaidDiagram chart={chart} />
+      </div>
 
       <div className="mt-4 grid grid-cols-4 gap-2">
         {[
@@ -331,6 +374,77 @@ function ArchitecturePanel() {
             <p className="text-sm font-semibold text-white">{s.value}</p>
           </div>
         ))}
+      </div>
+    </div>
+  );
+}
+
+function MermaidEditor({
+  value,
+  onChange,
+  liveEdit,
+  setLiveEdit,
+  onApply,
+  onReset,
+  onClose,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  liveEdit: boolean;
+  setLiveEdit: (v: boolean) => void;
+  onApply: () => void;
+  onReset: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-col overflow-hidden rounded-2xl border border-white/5 bg-slate-950/60">
+      <div className="flex items-center justify-between border-b border-white/5 px-3 py-2">
+        <div className="flex items-center gap-2">
+          <FileCode2 className="h-3.5 w-3.5 text-cyan-300" />
+          <span className="text-xs font-semibold text-white">Mermaid source</span>
+        </div>
+        <button
+          onClick={onClose}
+          className="flex h-6 w-6 items-center justify-center rounded-md text-slate-400 hover:bg-white/5 hover:text-cyan-300"
+          aria-label="Close editor"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        spellCheck={false}
+        className="flex-1 resize-none bg-transparent px-3 py-3 font-mono text-[12px] leading-relaxed text-slate-100 outline-none placeholder-slate-500"
+        placeholder="graph TD&#10;  A --> B"
+      />
+      <div className="flex items-center justify-between gap-2 border-t border-white/5 px-3 py-2">
+        <label className="flex items-center gap-1.5 text-[11px] text-slate-300">
+          <input
+            type="checkbox"
+            checked={liveEdit}
+            onChange={(e) => setLiveEdit(e.target.checked)}
+            className="h-3 w-3 accent-cyan-400"
+          />
+          Live rerender
+        </label>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onReset}
+            className="inline-flex items-center gap-1 rounded-lg border border-white/10 px-2.5 py-1.5 text-[11px] text-slate-300 transition hover:border-cyan-300/30 hover:text-cyan-300"
+          >
+            <RotateCcw className="h-3 w-3" />
+            Reset
+          </button>
+          <button
+            onClick={onApply}
+            disabled={liveEdit}
+            className="inline-flex items-center gap-1 rounded-lg bg-gradient-to-br from-cyan-300 to-sky-500 px-2.5 py-1.5 text-[11px] font-semibold text-slate-950 shadow-[0_0_16px_rgba(34,211,238,0.4)] transition hover:shadow-[0_0_24px_rgba(34,211,238,0.65)] disabled:opacity-40 disabled:shadow-none"
+          >
+            <Play className="h-3 w-3" />
+            Rerender
+          </button>
+        </div>
       </div>
     </div>
   );
