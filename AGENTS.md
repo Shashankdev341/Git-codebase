@@ -1,10 +1,4 @@
-<!-- LOVABLE:BEGIN -->
-> [!IMPORTANT]
-> This project is connected to [Lovable](https://lovable.dev). Avoid rewriting
-> published git history — force pushing, or rebasing/amending/squashing commits
-> that are already pushed — as it rewrites history on Lovable's side and the
-> user will likely lose their project history.
->
-> Commits you push to the connected branch sync back to Lovable and show up in
-> the editor, so keep the branch in a working state.
-<!-- LOVABLE:END -->
+# CodeSight Project Rules & Workflow Guidelines
+
+- Keep the main workspace branch in a clean, buildable state at all times.
+- Ensure all components maintain rich enterprise dark-mode aesthetics, responsive touch controls, zero horizontal scroll on mobile viewports, and clean React memoizations.
