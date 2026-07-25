@@ -77,21 +77,22 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "Lovable App" },
-      { name: "description", content: "Lovable Generated Project" },
-      { name: "author", content: "Lovable" },
-      { property: "og:title", content: "Lovable App" },
-      { property: "og:description", content: "Lovable Generated Project" },
+      { title: "CodeSight — Enterprise Codebase Intelligence" },
+      { name: "description", content: "Instant architecture mapping, dependency graph visualization, and repository-grounded AI companion for engineering teams." },
+      { name: "author", content: "CodeSight" },
+      { property: "og:title", content: "CodeSight — Enterprise Codebase Intelligence" },
+      { property: "og:description", content: "Instant architecture mapping and dependency graph visualization for engineering teams." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@Lovable" },
+      { name: "twitter:site", content: "@CodeSight" },
     ],
     links: [
       {
         rel: "stylesheet",
         href: appCss,
       },
-      { rel: "icon", href: "/favicon.ico", type: "image/x-icon" },
+      { rel: "icon", href: "/favicon.svg", type: "image/svg+xml" },
+      { rel: "alternate icon", href: "/favicon.ico", type: "image/x-icon" },
     ],
   }),
   shellComponent: RootShell,
@@ -106,7 +107,7 @@ function RootShell({ children }: { children: ReactNode }) {
       <head>
         <HeadContent />
       </head>
-      <body>
+      <body className="w-full max-w-full overflow-x-hidden bg-[#09090B] text-[#FAFAFA]" suppressHydrationWarning>
         {children}
         <Scripts />
       </body>
