@@ -244,22 +244,28 @@ async function generateWithGemini(prompt: string): Promise<string> {
 /* ------------------------------------------------------------------ */
 
 async function generateAIResponse(prompt: string, groqPrompt?: string): Promise<string> {
+  const errors: string[] = [];
+
   // 1. Try Groq first (ultra-fast)
   try {
     return await generateWithGroq(groqPrompt || prompt);
   } catch (err: any) {
-    console.warn("[AI Cascade] Groq unavailable, falling back to Gemini...", err?.message || err);
+    const msg = err?.message || String(err);
+    console.warn("[AI Cascade] Groq unavailable, falling back to Gemini...", msg);
+    errors.push(`Groq Error: ${msg}`);
   }
 
   // 2. Try Gemini (larger context, reliable fallback)
   try {
     return await generateWithGemini(prompt);
   } catch (err: any) {
-    console.warn("[AI Cascade] Gemini also unavailable.", err?.message || err);
+    const msg = err?.message || String(err);
+    console.warn("[AI Cascade] Gemini also unavailable.", msg);
+    errors.push(`Gemini Error: ${msg}`);
   }
 
-  // 3. Both failed — throw so caller can use local fallback
-  throw new Error("All AI engines unavailable");
+  // 3. Both failed — throw combined error string so caller can use local fallback
+  throw new Error(errors.join(" | "));
 }
 
 /* ------------------------------------------------------------------ */
@@ -478,14 +484,24 @@ ${conversation || "(No prior messages)"}
 
 8. **NEVER** include disclaimers about API keys, rate limits, or AI availability. You are an omniscient codebase expert.`;
 
-  // Extract only the relevant code to save tokens and prevent rate limits for BOTH engines
-  const relevantCode = extractRelevantCode(aggregatedCode, fileTree, question, GROQ_CONTEXT_LIMIT);
-  
-  // Prompt for Gemini (optimized context)
-  const geminiPrompt = basePreamble + relevantCode + baseInstructions;
+  // Extract code
+  const geminiRelevantCode = extractRelevantCode(aggregatedCode, fileTree, question, 60000); // 60k chars for Gemini
+  const groqRelevantCode = extractRelevantCode(aggregatedCode, fileTree, question, 12000);   // 12k chars for Groq
 
-  // Prompt for Groq (optimized context)
-  const groqPrompt = basePreamble + relevantCode + baseInstructions;
+  // Prompt for Gemini (Massive context: Tree + Diagram + 60k chars code)
+  const geminiPrompt = basePreamble + geminiRelevantCode + baseInstructions;
+
+  // Prompt for Groq (Ultra-minimal context: 12k chars code + short instructions to stay under 6k TPM limit)
+  const groqPrompt = `You are CodeSight AI. Answer the user's question about the repository "${owner}/${repo}" based on the following code:
+  
+${groqRelevantCode}
+
+Conversation History:
+${conversation || "(None)"}
+
+Question: "${question}"
+
+Please answer using Markdown formatting. Refer to exact file names and functions in the code above.`;
 
   let debugErr = "";
   try {
