@@ -125,13 +125,18 @@ function extractRelevantCode(
 /* ------------------------------------------------------------------ */
 
 async function generateWithGroq(prompt: string): Promise<string> {
-  const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
-  const apiKey =
-    metaEnv?.VITE_GROQ_API_KEY ||
-    metaEnv?.GROQ_API_KEY ||
-    process.env.GROQ_API_KEY ||
-    process.env.VITE_GROQ_API_KEY ||
-    (typeof window !== "undefined" && (window as any).GROQ_API_KEY);
+  let apiKey = "";
+  try {
+    apiKey = import.meta.env.VITE_GROQ_API_KEY;
+  } catch {
+    /* ignore */
+  }
+  if (!apiKey && typeof process !== "undefined") {
+    apiKey = process.env.GROQ_API_KEY || process.env.VITE_GROQ_API_KEY || "";
+  }
+  if (!apiKey && typeof window !== "undefined") {
+    apiKey = (window as any).GROQ_API_KEY || "";
+  }
 
   if (!apiKey || apiKey === "your_groq_api_key_here") {
     throw new Error("Groq API key not configured");
@@ -178,13 +183,18 @@ async function generateWithGroq(prompt: string): Promise<string> {
 /* ------------------------------------------------------------------ */
 
 async function generateWithGemini(prompt: string): Promise<string> {
-  const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
-  const apiKey =
-    metaEnv?.VITE_GEMINI_API_KEY ||
-    metaEnv?.GEMINI_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.VITE_GEMINI_API_KEY ||
-    (typeof window !== "undefined" && (window as any).GEMINI_API_KEY);
+  let apiKey = "";
+  try {
+    apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+  } catch {
+    /* ignore */
+  }
+  if (!apiKey && typeof process !== "undefined") {
+    apiKey = process.env.GEMINI_API_KEY || process.env.VITE_GEMINI_API_KEY || "";
+  }
+  if (!apiKey && typeof window !== "undefined") {
+    apiKey = (window as any).GEMINI_API_KEY || "";
+  }
 
   if (!apiKey || apiKey === "your_gemini_api_key_here") {
     throw new Error("Gemini API key not configured");
