@@ -15,45 +15,257 @@ export interface ChatMessageItem {
   content: string;
 }
 
+/* ------------------------------------------------------------------ */
+/*  Provider Constants                                                 */
+/* ------------------------------------------------------------------ */
+
+const GROQ_MODELS = [
+  "llama-3.3-70b-versatile",
+  "llama-3.1-8b-instant",
+];
+
 const GEMINI_MODELS = [
   "gemini-2.0-flash",
   "gemini-2.0-flash-lite",
 ];
 
-function getGeminiClient(): GoogleGenAI {
-  const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
-  const apiKey =
-    metaEnv?.VITE_GEMINI_API_KEY ||
-    metaEnv?.GEMINI_API_KEY ||
-    process.env.GEMINI_API_KEY ||
-    process.env.VITE_GEMINI_API_KEY ||
-    (typeof window !== "undefined" && (window as any).GEMINI_API_KEY);
+/** Max characters to send to Groq (free tier: 12K TPM, keep prompt under ~10K tokens ≈ 40K chars) */
+const GROQ_CONTEXT_LIMIT = 40000;
 
-  if (!apiKey) {
-    throw new Error(
-      "Gemini API Key is missing. Please set GEMINI_API_KEY in your .env file or environment variables."
-    );
+/* ------------------------------------------------------------------ */
+/*  Client Initializers                                                */
+/* ------------------------------------------------------------------ */
+
+function getGroqClient(): Groq | null {
+  try {
+    const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
+    const apiKey =
+      metaEnv?.VITE_GROQ_API_KEY ||
+      metaEnv?.GROQ_API_KEY ||
+      process.env.GROQ_API_KEY ||
+      process.env.VITE_GROQ_API_KEY ||
+      (typeof window !== "undefined" && (window as any).GROQ_API_KEY);
+
+    if (!apiKey || apiKey === "your_groq_api_key_here") {
+      return null;
+    }
+
+    return new Groq({ apiKey, dangerouslyAllowBrowser: true });
+  } catch {
+    return null;
   }
-
-  return new GoogleGenAI({ apiKey });
 }
 
-async function generateWithFallback(ai: GoogleGenAI, prompt: string) {
+function getGeminiClient(): GoogleGenAI | null {
+  try {
+    const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
+    const apiKey =
+      metaEnv?.VITE_GEMINI_API_KEY ||
+      metaEnv?.GEMINI_API_KEY ||
+      process.env.GEMINI_API_KEY ||
+      process.env.VITE_GEMINI_API_KEY ||
+      (typeof window !== "undefined" && (window as any).GEMINI_API_KEY);
+
+    if (!apiKey || apiKey === "your_gemini_api_key_here") {
+      return null;
+    }
+
+    return new GoogleGenAI({ apiKey });
+  } catch {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/*  Smart Context Extraction                                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Extracts the most relevant source code for the user's question.
+ * Instead of sending the entire codebase, finds the specific files
+ * the user is asking about + key entry points.
+ */
+function extractRelevantCode(
+  aggregatedCode: string,
+  fileTree: string[],
+  question: string,
+  maxChars: number
+): string {
+  const q = question.toLowerCase();
+
+  // Split aggregated code into individual file blocks
+  const fileBlocks: { path: string; content: string }[] = [];
+  const parts = aggregatedCode.split("========================================\nFILE: ");
+  for (const part of parts) {
+    if (!part.trim()) continue;
+    const newlineIdx = part.indexOf("\n========================================\n");
+    if (newlineIdx === -1) continue;
+    const path = part.slice(0, newlineIdx).trim();
+    const content = part.slice(newlineIdx + 42).trim();
+    fileBlocks.push({ path, content });
+  }
+
+  // Score each file by relevance to the question
+  const scored = fileBlocks.map((fb) => {
+    let score = 0;
+    const pathLower = fb.path.toLowerCase();
+    const pathParts = pathLower.split("/");
+    const fileName = pathParts[pathParts.length - 1] || "";
+    const fileNameNoExt = fileName.replace(/\.[^.]+$/, "");
+
+    // Exact file name match (highest priority)
+    if (q.includes(fileName) || q.includes(fileNameNoExt)) score += 100;
+
+    // Partial path match
+    for (const part of pathParts) {
+      if (part.length > 2 && q.includes(part)) score += 30;
+    }
+
+    // Key entry files always get some score
+    if (["index", "main", "app", "server", "router", "package.json", "readme"].some(k => fileName.includes(k))) {
+      score += 5;
+    }
+
+    // Topic-based matching
+    const topics = q.match(/\b\w{3,}\b/g) || [];
+    for (const topic of topics) {
+      if (pathLower.includes(topic)) score += 20;
+      if (fb.content.toLowerCase().includes(topic)) score += 2;
+    }
+
+    return { ...fb, score };
+  });
+
+  // Sort by relevance score descending
+  scored.sort((a, b) => b.score - a.score);
+
+  // Build context from most relevant files, up to maxChars
+  let result = "";
+  let charCount = 0;
+  for (const fb of scored) {
+    const block = `\n=== FILE: ${fb.path} ===\n${fb.content}\n`;
+    if (charCount + block.length > maxChars) {
+      // Add a truncated version of this file if it's highly relevant
+      if (fb.score >= 50) {
+        const remaining = maxChars - charCount;
+        result += `\n=== FILE: ${fb.path} (truncated) ===\n${fb.content.slice(0, remaining - 100)}\n...\n`;
+      }
+      break;
+    }
+    result += block;
+    charCount += block.length;
+  }
+
+  return result || aggregatedCode.slice(0, maxChars);
+}
+
+/* ------------------------------------------------------------------ */
+/*  Groq Generation (Primary)                                          */
+/* ------------------------------------------------------------------ */
+
+async function generateWithGroq(prompt: string): Promise<string> {
+  const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
+  const apiKey =
+    metaEnv?.VITE_GROQ_API_KEY ||
+    metaEnv?.GROQ_API_KEY ||
+    process.env.GROQ_API_KEY ||
+    process.env.VITE_GROQ_API_KEY ||
+    (typeof window !== "undefined" && (window as any).GROQ_API_KEY);
+
+  if (!apiKey || apiKey === "your_groq_api_key_here") {
+    throw new Error("Groq API key not configured");
+  }
+
   let lastErr: any;
-  for (const model of GEMINI_MODELS) {
+  for (const model of GROQ_MODELS) {
     try {
-      const res = await ai.models.generateContent({
-        model,
-        contents: prompt,
+      const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: "user", content: prompt }],
+          temperature: 0.6,
+          max_tokens: 8192,
+        }),
       });
-      return res;
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Groq API ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      const text = data.choices?.[0]?.message?.content || "";
+      if (text.trim()) {
+        console.log(`[AI Engine: Groq] ✅ Response generated with model: ${model}`);
+        return text;
+      }
     } catch (err: any) {
-      console.warn(`Model ${model} failed, trying next model...`, err?.message || err);
+      console.warn(`[Groq] Model ${model} failed, trying next...`, err?.message || err);
       lastErr = err;
     }
   }
-  throw lastErr;
+  throw lastErr || new Error("All Groq models failed");
 }
+
+/* ------------------------------------------------------------------ */
+/*  Gemini Generation (Fallback)                                       */
+/* ------------------------------------------------------------------ */
+
+async function generateWithGemini(prompt: string): Promise<string> {
+  const client = getGeminiClient();
+  if (!client) throw new Error("Gemini API key not configured");
+
+  let lastErr: any;
+  for (const model of GEMINI_MODELS) {
+    try {
+      const res = await client.models.generateContent({
+        model,
+        contents: prompt,
+      });
+      const text = res.text || "";
+      if (text.trim()) {
+        console.log(`[AI Engine: Gemini] Response generated with model: ${model}`);
+        return text;
+      }
+    } catch (err: any) {
+      console.warn(`[Gemini] Model ${model} failed, trying next...`, err?.message || err);
+      lastErr = err;
+    }
+  }
+  throw lastErr || new Error("All Gemini models failed");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Unified AI Generation — Groq → Gemini → throws                    */
+/* ------------------------------------------------------------------ */
+
+async function generateAIResponse(prompt: string, groqPrompt?: string): Promise<string> {
+  // 1. Try Groq first (ultra-fast)
+  try {
+    return await generateWithGroq(groqPrompt || prompt);
+  } catch (err: any) {
+    console.warn("[AI Cascade] Groq unavailable, falling back to Gemini...", err?.message || err);
+  }
+
+  // 2. Try Gemini (larger context, reliable fallback)
+  try {
+    return await generateWithGemini(prompt);
+  } catch (err: any) {
+    console.warn("[AI Cascade] Gemini also unavailable.", err?.message || err);
+  }
+
+  // 3. Both failed — throw so caller can use local fallback
+  throw new Error("All AI engines unavailable");
+}
+
+/* ------------------------------------------------------------------ */
+/*  Diagram Generation                                                 */
+/* ------------------------------------------------------------------ */
 
 export async function generateMermaidDiagram(
   owner: string,
@@ -61,10 +273,12 @@ export async function generateMermaidDiagram(
   aggregatedCode: string,
   totalFiles: number
 ): Promise<DiagramResult> {
-  const prompt = `You are an expert software architect analyzing the repository "${owner}/${repo}".
+  const basePreamble = `You are an expert software architect analyzing the repository "${owner}/${repo}".
 Given the following codebase structure and source files:
 
-${aggregatedCode.slice(0, 700000)}
+`;
+
+  const baseInstructions = `
 
 Generate an architectural overview diagram for this project using Mermaid.js graph syntax (flowchart / graph TD).
 
@@ -85,13 +299,17 @@ Requirements:
 }
 `;
 
+  // Full prompt for Gemini (large context)
+  const geminiPrompt = basePreamble + aggregatedCode.slice(0, 700000) + baseInstructions;
+
+  // Trimmed prompt for Groq (128K token limit)
+  const groqPrompt = basePreamble + aggregatedCode.slice(0, GROQ_CONTEXT_LIMIT) + baseInstructions;
+
   let text = "";
   let parsedStats = { modules: 14, services: 5, depth: 4 };
 
   try {
-    const ai = getGeminiClient();
-    const response = await generateWithFallback(ai, prompt);
-    text = response.text || "";
+    text = await generateAIResponse(geminiPrompt, groqPrompt);
   } catch (err: any) {
     console.warn("AI generation offline or API quota limit reached. Using intelligent code structure parser fallback.", err);
   }
@@ -150,57 +368,140 @@ Requirements:
   };
 }
 
+/* ------------------------------------------------------------------ */
+/*  Codebase Chat Q&A                                                  */
+/* ------------------------------------------------------------------ */
+
 export async function askCodebaseQuestion(
   owner: string,
   repo: string,
   aggregatedCode: string,
   history: ChatMessageItem[],
   question: string,
-  fileTree: string[] = []
+  fileTree: string[] = [],
+  diagramChart?: string
 ): Promise<string> {
   const conversation = history
     .slice(-6)
     .map((h) => `${h.role === "user" ? "User" : "Assistant"}: ${h.content}`)
     .join("\n");
 
-  const prompt = `You are CodeSight AI, an elite Senior Principal Software Architect specialized in deep codebase comprehension for "${owner}/${repo}".
+  // Build a structured file tree summary grouped by directories
+  const dirMap = new Map<string, string[]>();
+  for (const f of fileTree) {
+    const parts = f.split("/");
+    const dir = parts.length > 1 ? parts.slice(0, -1).join("/") : "(root)";
+    if (!dirMap.has(dir)) dirMap.set(dir, []);
+    dirMap.get(dir)!.push(parts[parts.length - 1]);
+  }
+  const structuredTree = Array.from(dirMap.entries())
+    .slice(0, 60)
+    .map(([dir, files]) => `📁 ${dir}/\n${files.slice(0, 15).map(f => `   └─ ${f}`).join("\n")}`)
+    .join("\n\n");
 
-Repository Directory File Tree:
-${fileTree.slice(0, 200).join("\n")}
+  const basePreamble = `You are CodeSight AI, an omniscient Senior Principal Software Architect with complete knowledge of every file, function, and architectural decision in "${owner}/${repo}".
 
-Codebase Context & Extracted Source Snippets:
-${aggregatedCode.slice(0, 600000)}
+You have access to the COMPLETE repository context below. Use it to answer ANY question about this codebase with extreme precision.
 
-Conversation Context:
-${conversation}
+═══════════════════════════════════════════════════
+📂 REPOSITORY STRUCTURE (organized by directory)
+═══════════════════════════════════════════════════
+${structuredTree}
+${fileTree.length > 60 ? `\n... and ${fileTree.length - 60} more files across the repository` : ""}
 
-User Question / Prompt:
+${diagramChart ? `═══════════════════════════════════════════════════
+🏗️ GENERATED ARCHITECTURE DIAGRAM (Mermaid)
+═══════════════════════════════════════════════════
+This is the live architecture diagram currently displayed to the user. Reference it when explaining how components connect:
+
+\`\`\`mermaid
+${diagramChart}
+\`\`\`
+` : ""}
+═══════════════════════════════════════════════════
+💻 FULL SOURCE CODE (extracted from repository)
+═══════════════════════════════════════════════════
+`;
+
+  const baseInstructions = `
+
+═══════════════════════════════════════════════════
+💬 CONVERSATION HISTORY
+═══════════════════════════════════════════════════
+${conversation || "(No prior messages)"}
+
+═══════════════════════════════════════════════════
+❓ USER QUESTION
+═══════════════════════════════════════════════════
 "${question}"
 
-Instructions:
-1. Provide a comprehensive, highly authoritative technical response strictly tailored to "${owner}/${repo}".
-2. If the user asks about an individual file or folder (e.g. "src/lib/codeParser.ts", "components/ui", "auth", etc.), explain its exact architectural role, exported modules, functions, parameters, imports, and how it connects to the system architecture diagram.
-3. If the user clicked "Inspect" or asks about an anomaly/scan alert (e.g. Auth Service latency, memory spike, payload size, dependency warnings), provide a complete technical breakdown containing:
-   - 🔍 **Root Cause Analysis** (why it happens in ${owner}/${repo})
-   - 📁 **Affected Components & Code Files**
-   - ⚡ **Performance & System Impact**
-   - 🛠️ **Step-by-Step Production Refactoring Solution** with concrete, clean code blocks!
-4. Format all file names, functions, and code blocks using clean Markdown formatting.
-5. DO NOT include any disclaimers about Gemini API keys, Google AI Studio links, rate limits, or AI availability. Respond directly as an omniscient codebase assistant.`;
+═══════════════════════════════════════════════════
+📋 RESPONSE RULES — Follow ALL of these strictly
+═══════════════════════════════════════════════════
+
+1. **Answer ONLY from the actual source code and file tree above.** Never guess or hallucinate. If a file doesn't exist in the tree, say so.
+
+2. **When asked about a specific file** (e.g. "what does src/lib/github.ts do?"):
+   - State its **exact purpose** in the project
+   - List its **key exports** (functions, classes, interfaces, types) with brief descriptions
+   - Show its **import dependencies** (what it imports from)
+   - Show its **dependents** (which other files import from it)
+   - Explain its **role in the architecture diagram** — which node/component in the diagram it maps to
+   - Include relevant **code snippets** from the source to back up your explanation
+
+3. **When asked about a folder/directory** (e.g. "what is the components folder for?"):
+   - List all files in that directory
+   - Explain the folder's collective architectural purpose
+   - Describe how files within it relate to each other
+   - Map it to the relevant section of the architecture diagram
+
+4. **When asked about features, patterns, or "how does X work?"**:
+   - Trace the complete data flow across files (entry point → processing → output)
+   - Reference specific file paths, function names, and line-level logic
+   - Show how the feature connects to the architecture diagram nodes
+
+5. **When asked about anomalies, performance, or issues** (e.g. "Inspect" alerts):
+   - Provide: 🔍 Root Cause Analysis, 📁 Affected Files, ⚡ Impact Assessment, 🛠️ Refactoring Solution with code
+   - Reference actual code patterns found in the source
+
+6. **When asked a general question** (e.g. "explain this project", "what does this repo do?"):
+   - Give a high-level summary of the project's purpose
+   - Describe the tech stack (frameworks, libraries, tools)
+   - Walk through the architecture using the diagram
+   - Highlight the most important files and their roles
+
+7. **Formatting rules**:
+   - Use clean Markdown with headers, bullet points, and code blocks
+   - Always wrap file paths in backticks: \`src/lib/github.ts\`
+   - Always wrap function/class names in backticks: \`fetchRepoData()\`
+   - Use code blocks with language tags for code snippets
+   - Use emoji icons for section headers (📁, 🔗, ⚡, 🛠️, etc.)
+
+8. **NEVER** include disclaimers about API keys, rate limits, or AI availability. You are an omniscient codebase expert.`;
+
+  // Full prompt for Gemini (large context)
+  const geminiPrompt = basePreamble + aggregatedCode.slice(0, 600000) + baseInstructions;
+
+  // Trimmed prompt for Groq (128K token limit, but free tier is 12K TPM)
+  const relevantCodeForGroq = extractRelevantCode(aggregatedCode, fileTree, question, GROQ_CONTEXT_LIMIT);
+  const groqPrompt = basePreamble + relevantCodeForGroq + baseInstructions;
 
   try {
-    const ai = getGeminiClient();
-    const response = await generateWithFallback(ai, prompt);
-    if (response.text && response.text.trim()) {
-      return response.text.trim();
+    const text = await generateAIResponse(geminiPrompt, groqPrompt);
+    if (text.trim()) {
+      return text.trim();
     }
   } catch (err: any) {
     console.warn("Executing Deep Codebase Knowledge Engine fallback.", err?.message || err);
   }
 
-  // Deep Codebase Knowledge Engine (Executes automatically if API key is rate-limited or offline)
+  // Deep Codebase Knowledge Engine (Executes automatically if all AI engines are unavailable)
   return analyzeCodebaseLocally(owner, repo, aggregatedCode, fileTree, question);
 }
+
+/* ------------------------------------------------------------------ */
+/*  Local Fallback Analysis (No API Required)                          */
+/* ------------------------------------------------------------------ */
 
 function analyzeCodebaseLocally(
   owner: string,

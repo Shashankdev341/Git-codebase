@@ -266,7 +266,7 @@ const Header = memo(function Header() {
       <div className="flex items-center gap-3 sm:gap-4 text-xs">
         <span className="hidden sm:inline-flex items-center gap-1.5 rounded-md border border-[#27272A] bg-[#111113] px-2.5 py-1 text-xs font-mono text-[#A1A1AA]">
           <span className="h-1.5 w-1.5 rounded-full bg-[#16A34A]" />
-          Gemini 2.5 Flash Engine
+          Groq + Gemini Engine
         </span>
         <a
           href="https://github.com"
@@ -706,7 +706,7 @@ const Dashboard = memo(function Dashboard({
 
           {/* Right AI Code Companion Side Panel */}
           <div className="min-w-0">
-            <ChatPanel repoData={repoData} externalPrompt={chatPrompt} />
+            <ChatPanel repoData={repoData} externalPrompt={chatPrompt} diagramChart={diagramResult?.chart} />
           </div>
         </div>
       )}
@@ -818,7 +818,7 @@ const AnalyticsView = memo(function AnalyticsView({ repoData }: { repoData: Proc
   }, [repoFiles]);
 
   return (
-    <div className="flex-1 flex flex-col gap-4 p-4 overflow-y-auto bg-[#09090B] text-[#FAFAFA] min-w-0">
+    <div data-lenis-prevent="true" className="flex-1 flex flex-col gap-4 p-4 overflow-y-auto bg-[#09090B] text-[#FAFAFA] min-w-0">
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <div className="rounded-lg border border-[#27272A] bg-[#111113] p-4">
           <p className="text-xs font-mono text-[#A1A1AA]">Code Health Score</p>
@@ -906,12 +906,12 @@ const AnalyticsView = memo(function AnalyticsView({ repoData }: { repoData: Proc
 const TeamView = memo(function TeamView({ repoData }: { repoData: ProcessedRepo }) {
   const teamMembers = [
     { name: repoData.owner, role: "Repository Owner & Lead", commits: "248 commits", active: true },
-    { name: "Gemini 2.5 AI Engine", role: "Automated Analysis Agent", commits: "Live Companion", active: true },
+    { name: "Groq AI Engine", role: "Automated Analysis Agent", commits: "Live Companion", active: true },
     { name: "CodeSight Security Bot", role: "Vulnerability & Secret Scanner", commits: "Continuous Audit", active: true },
   ];
 
   return (
-    <div className="flex-1 flex flex-col gap-4 p-3 sm:p-4 overflow-y-auto bg-[#09090B] text-[#FAFAFA] min-w-0">
+    <div data-lenis-prevent="true" className="flex-1 flex flex-col gap-4 p-3 sm:p-4 overflow-y-auto bg-[#09090B] text-[#FAFAFA] min-w-0">
       <div className="rounded-lg border border-[#27272A] bg-[#111113] p-4 sm:p-5">
         <h2 className="text-sm font-semibold text-[#FAFAFA] flex items-center gap-2 mb-1">
           <Users className="h-4 w-4 text-[#A1A1AA]" /> Collaborators & Access Controls
@@ -972,7 +972,7 @@ const ModalWrapper = memo(function ModalWrapper({
             ✕
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">{children}</div>
+        <div data-lenis-prevent="true" className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">{children}</div>
       </div>
     </div>
   );
@@ -1023,7 +1023,7 @@ const RepositoryModal = memo(function RepositoryModal({
           className="w-full rounded-md border border-[#27272A] bg-[#18181B] px-3 py-2 text-xs text-[#FAFAFA] placeholder-[#71717A] font-mono outline-none focus:border-[#2563EB]"
         />
 
-        <div className="max-h-[50vh] overflow-y-auto space-y-1 pr-1">
+        <div data-lenis-prevent="true" className="max-h-[50vh] overflow-y-auto space-y-1 pr-1">
           {filteredFiles.map((file) => (
             <div
               key={file.path}
@@ -1107,8 +1107,8 @@ const SettingsModal = memo(function SettingsModal({
           <h3 className="font-semibold text-[#FAFAFA]">AI Analysis Engine</h3>
           <div className="flex items-center justify-between p-2.5 rounded border border-[#27272A] bg-[#111113]">
             <div>
-              <p className="font-medium text-[#FAFAFA]">Model: Gemini 2.5 Flash</p>
-              <p className="text-[11px] text-[#71717A]">Google DeepMind fast reasoning engine</p>
+              <p className="font-medium text-[#FAFAFA]">Model: LLaMA 3.3 70B</p>
+              <p className="text-[11px] text-[#71717A]">Groq LPU ultra-fast inference + Gemini fallback</p>
             </div>
             <span className="text-[10px] font-mono text-[#16A34A] bg-[#16A34A]/10 px-2 py-0.5 rounded border border-[#16A34A]/20">
               Active
@@ -1568,7 +1568,7 @@ const HistoryPanel = memo(function HistoryPanel({
           Save current snapshot
         </button>
       </div>
-      <div className="flex-1 overflow-y-auto p-2 space-y-1">
+      <div data-lenis-prevent="true" className="flex-1 overflow-y-auto p-2 space-y-1">
         {snapshots.length === 0 ? (
           <div className="py-6 text-center text-[11px] font-mono text-[#71717A]">
             No snapshots saved yet.
@@ -1796,7 +1796,7 @@ const MermaidDiagram = memo(function MermaidDiagram({
     setPan({ x: 0, y: 0 });
   }, []);
 
-  const buildExportSvg = useCallback((): string | null => {
+  const buildExportSvg = useCallback((isSvgDownload = false): string | null => {
     if (!svg) return null;
     const parser = new DOMParser();
     const doc = parser.parseFromString(svg, "image/svg+xml");
@@ -1804,9 +1804,16 @@ const MermaidDiagram = memo(function MermaidDiagram({
     svgEl.setAttribute("xmlns", "http://www.w3.org/2000/svg");
     const viewBox = svgEl.getAttribute("viewBox");
     if (viewBox) {
-      const [, , vw, vh] = viewBox.split(/\s+/).map(Number);
-      svgEl.setAttribute("width", String(vw));
-      svgEl.setAttribute("height", String(vh));
+      if (isSvgDownload) {
+        // For SVG download, 100% width/height lets it auto-scale in viewers
+        svgEl.setAttribute("width", "100%");
+        svgEl.setAttribute("height", "100%");
+      } else {
+        // For PNG, we need absolute pixels to render cleanly to the canvas
+        const [, , vw, vh] = viewBox.split(/\s+/).map(Number);
+        svgEl.setAttribute("width", String(vw));
+        svgEl.setAttribute("height", String(vh));
+      }
     }
     const bg = doc.createElementNS("http://www.w3.org/2000/svg", "rect");
     bg.setAttribute("width", "100%");
@@ -1828,14 +1835,14 @@ const MermaidDiagram = memo(function MermaidDiagram({
   }, []);
 
   const exportSvg = useCallback(() => {
-    const out = buildExportSvg();
+    const out = buildExportSvg(true); // true = format for SVG download
     if (!out) return;
     triggerDownload(new Blob([out], { type: "image/svg+xml" }), "architecture.svg");
     setExportOpen(false);
   }, [buildExportSvg, triggerDownload]);
 
   const exportPng = useCallback(async () => {
-    const out = buildExportSvg();
+    const out = buildExportSvg(false); // false = keep exact pixels for PNG canvas
     if (!out) return;
     const svgBlob = new Blob([out], { type: "image/svg+xml;charset=utf-8" });
     const url = URL.createObjectURL(svgBlob);
@@ -1881,7 +1888,6 @@ const MermaidDiagram = memo(function MermaidDiagram({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
-        onWheel={handleWheel}
       >
         <div
           ref={svgWrapperRef}
@@ -1990,9 +1996,11 @@ const MermaidDiagram = memo(function MermaidDiagram({
 const ChatPanel = memo(function ChatPanel({
   repoData,
   externalPrompt,
+  diagramChart,
 }: {
   repoData: ProcessedRepo;
   externalPrompt?: string;
+  diagramChart?: string;
 }) {
   const [messages, setMessages] = useState<ChatMessage[]>([
     {
@@ -2020,7 +2028,8 @@ const ChatPanel = memo(function ChatPanel({
         repoData.aggregatedCode,
         messages,
         text,
-        repoData.fileTree
+        repoData.fileTree,
+        diagramChart
       );
 
       setMessages((m) => [
@@ -2033,23 +2042,28 @@ const ChatPanel = memo(function ChatPanel({
       ]);
     } catch (err: any) {
       console.warn("AI Companion fallback engaged:", err);
+      const errMsg = err?.message || "";
+      const isKeyIssue = errMsg.includes("not configured") || errMsg.includes("missing") || errMsg.includes("unavailable");
       setMessages((m) => [
         ...m,
         {
           id: crypto.randomUUID(),
           role: "ai",
-          content: `Architecture Overview for **${repoData.owner}/${repoData.repo}**:
-- Module tree parsed across **${repoData.fileTree.length}** source files.
-- Request pipelines dispatch through entry routers and middleware.`,
+          content: isKeyIssue
+            ? `⚠️ **AI engines unavailable** — both Groq and Gemini API calls failed.\n\n**Possible causes:**\n- Groq API key not set in \`.env\` (currently a placeholder)\n- Gemini API key expired or rate-limited\n\n**To fix:** Add your Groq API key to the \`.env\` file:\n\`\`\`\nGROQ_API_KEY=gsk_your_actual_key_here\nVITE_GROQ_API_KEY=gsk_your_actual_key_here\n\`\`\`\nGet a free key at [console.groq.com/keys](https://console.groq.com/keys)`
+            : `Architecture Overview for **${repoData.owner}/${repoData.repo}**:\n- Module tree parsed across **${repoData.fileTree.length}** source files.\n- Request pipelines dispatch through entry routers and middleware.`,
         },
       ]);
     } finally {
       setLoadingAI(false);
     }
-  }, [loadingAI, messages, repoData]);
+  }, [loadingAI, messages, repoData, diagramChart]);
+
+  const lastProcessedPromptRef = useRef<string>("");
 
   useEffect(() => {
-    if (externalPrompt && externalPrompt.trim()) {
+    if (externalPrompt && externalPrompt.trim() && externalPrompt !== lastProcessedPromptRef.current) {
+      lastProcessedPromptRef.current = externalPrompt;
       handleSendPrompt(externalPrompt.trim());
     }
   }, [externalPrompt, handleSendPrompt]);
@@ -2088,7 +2102,7 @@ const ChatPanel = memo(function ChatPanel({
       </div>
 
       {/* Messages Stream */}
-      <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
+      <div data-lenis-prevent="true" ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
         {messages.map((m) => (
           <Message key={m.id} message={m} onTriggerPrompt={handleSendPrompt} />
         ))}

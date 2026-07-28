@@ -13,7 +13,8 @@ export async function getMermaid(): Promise<Mermaid> {
     startOnLoad: false,
     theme: "base",
     securityLevel: "loose",
-    fontFamily: "inherit",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace",
+    htmlLabels: false,
     themeVariables: {
       background: "transparent",
       primaryColor: "#361448",
