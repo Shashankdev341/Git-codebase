@@ -479,12 +479,14 @@ ${conversation || "(No prior messages)"}
 
 8. **NEVER** include disclaimers about API keys, rate limits, or AI availability. You are an omniscient codebase expert.`;
 
-  // Full prompt for Gemini (large context)
-  const geminiPrompt = basePreamble + aggregatedCode.slice(0, 600000) + baseInstructions;
+  // Extract only the relevant code to save tokens and prevent rate limits for BOTH engines
+  const relevantCode = extractRelevantCode(aggregatedCode, fileTree, question, GROQ_CONTEXT_LIMIT);
+  
+  // Prompt for Gemini (optimized context)
+  const geminiPrompt = basePreamble + relevantCode + baseInstructions;
 
-  // Trimmed prompt for Groq (128K token limit, but free tier is 12K TPM)
-  const relevantCodeForGroq = extractRelevantCode(aggregatedCode, fileTree, question, GROQ_CONTEXT_LIMIT);
-  const groqPrompt = basePreamble + relevantCodeForGroq + baseInstructions;
+  // Prompt for Groq (optimized context)
+  const groqPrompt = basePreamble + relevantCode + baseInstructions;
 
   try {
     const text = await generateAIResponse(geminiPrompt, groqPrompt);
