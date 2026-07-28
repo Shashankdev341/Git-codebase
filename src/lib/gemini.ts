@@ -487,17 +487,19 @@ ${conversation || "(No prior messages)"}
   // Prompt for Groq (optimized context)
   const groqPrompt = basePreamble + relevantCode + baseInstructions;
 
+  let debugErr = "";
   try {
     const text = await generateAIResponse(geminiPrompt, groqPrompt);
     if (text.trim()) {
       return text.trim();
     }
   } catch (err: any) {
-    console.warn("Executing Deep Codebase Knowledge Engine fallback.", err?.message || err);
+    debugErr = err?.message || String(err);
+    console.warn("Executing Deep Codebase Knowledge Engine fallback.", debugErr);
   }
 
   // Deep Codebase Knowledge Engine (Executes automatically if all AI engines are unavailable)
-  return analyzeCodebaseLocally(owner, repo, aggregatedCode, fileTree, question);
+  return analyzeCodebaseLocally(owner, repo, aggregatedCode, fileTree, question, debugErr);
 }
 
 /* ------------------------------------------------------------------ */
@@ -509,13 +511,18 @@ function analyzeCodebaseLocally(
   repo: string,
   aggregatedCode: string,
   fileTree: string[],
-  question: string
+  question: string,
+  debugErr?: string
 ): string {
   const q = question.toLowerCase();
 
+  const debugHeader = debugErr
+    ? `> [!WARNING]\n> **AI Engine Unavailable:** ${debugErr}\n> Falling back to local codebase analysis.\n\n`
+    : "";
+
   // 1. Anomaly Inspection: Auth Service / Middleware Latency
   if (q.includes("auth") || q.includes("latency") || q.includes("hotspot") || q.includes("middleware")) {
-    return `### 🔍 Deep Diagnostic Analysis: Auth Service & Middleware Latency
+    return `${debugHeader}### 🔍 Deep Diagnostic Analysis: Auth Service & Middleware Latency
 
 In **${owner}/${repo}**, authentication validation routines and middleware dispatches exhibit P99 latency spikes during peak load.
 
@@ -598,7 +605,7 @@ export function parseCodebaseInChunks<T>(items: T[], chunkSize = 50, processFn: 
       codeSnippet = aggregatedCode.slice(fileHeaderIndex, fileHeaderIndex + 800);
     }
 
-    return `### 📄 Technical Analysis: \`${mentionedFile}\`
+    return `${debugHeader}### 📄 Technical Analysis: \`${mentionedFile}\`
 
 In **${owner}/${repo}**, \`${mentionedFile}\` plays a core role in the architecture.
 
@@ -630,7 +637,7 @@ Modifications to \`${mentionedFile}\` will directly reflect in the live Architec
 
   if (mentionedFolder) {
     const folderFiles = fileTree.filter((f) => f.startsWith(`${mentionedFolder}/`));
-    return `### 📁 Directory Overview: \`${mentionedFolder}/\`
+    return `${debugHeader}### 📁 Directory Overview: \`${mentionedFolder}/\`
 
 In **${owner}/${repo}**, the \`${mentionedFolder}/\` directory contains **${folderFiles.length}** source files that form a key architectural sub-system.
 
@@ -647,7 +654,7 @@ ${folderFiles.length > 10 ? `- ...and ${folderFiles.length - 10} more files` : "
   const fileCount = fileTree.length || 89;
   const topFiles = fileTree.slice(0, 6);
 
-  return `### 🏗️ Architecture Analysis: **${owner}/${repo}**
+  return `${debugHeader}### 🏗️ Architecture Analysis: **${owner}/${repo}**
 
 The repository **${owner}/${repo}** is structured as an enterprise-grade application organized across **${fileCount}** key files.
 
