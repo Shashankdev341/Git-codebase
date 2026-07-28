@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+// Using native fetch for all API calls to ensure browser compatibility
 
 export interface DiagramResult {
   chart: string;
@@ -29,52 +29,13 @@ const GEMINI_MODELS = [
   "gemini-2.0-flash-lite",
 ];
 
-/** Max characters to send to Groq (free tier: 12K TPM, keep prompt under ~10K tokens ≈ 40K chars) */
-const GROQ_CONTEXT_LIMIT = 40000;
+const GROQ_CONTEXT_LIMIT = 24000;
 
 /* ------------------------------------------------------------------ */
 /*  Client Initializers                                                */
 /* ------------------------------------------------------------------ */
 
-function getGroqClient(): Groq | null {
-  try {
-    const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
-    const apiKey =
-      metaEnv?.VITE_GROQ_API_KEY ||
-      metaEnv?.GROQ_API_KEY ||
-      process.env.GROQ_API_KEY ||
-      process.env.VITE_GROQ_API_KEY ||
-      (typeof window !== "undefined" && (window as any).GROQ_API_KEY);
-
-    if (!apiKey || apiKey === "your_groq_api_key_here") {
-      return null;
-    }
-
-    return new Groq({ apiKey, dangerouslyAllowBrowser: true });
-  } catch {
-    return null;
-  }
-}
-
-function getGeminiClient(): GoogleGenAI | null {
-  try {
-    const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
-    const apiKey =
-      metaEnv?.VITE_GEMINI_API_KEY ||
-      metaEnv?.GEMINI_API_KEY ||
-      process.env.GEMINI_API_KEY ||
-      process.env.VITE_GEMINI_API_KEY ||
-      (typeof window !== "undefined" && (window as any).GEMINI_API_KEY);
-
-    if (!apiKey || apiKey === "your_gemini_api_key_here") {
-      return null;
-    }
-
-    return new GoogleGenAI({ apiKey });
-  } catch {
-    return null;
-  }
-}
+// Removed unused getGroqClient and getGeminiClient
 
 /* ------------------------------------------------------------------ */
 /*  Smart Context Extraction                                           */
@@ -217,19 +178,47 @@ async function generateWithGroq(prompt: string): Promise<string> {
 /* ------------------------------------------------------------------ */
 
 async function generateWithGemini(prompt: string): Promise<string> {
-  const client = getGeminiClient();
-  if (!client) throw new Error("Gemini API key not configured");
+  const metaEnv = typeof import.meta !== "undefined" ? (import.meta as any).env : {};
+  const apiKey =
+    metaEnv?.VITE_GEMINI_API_KEY ||
+    metaEnv?.GEMINI_API_KEY ||
+    process.env.GEMINI_API_KEY ||
+    process.env.VITE_GEMINI_API_KEY ||
+    (typeof window !== "undefined" && (window as any).GEMINI_API_KEY);
+
+  if (!apiKey || apiKey === "your_gemini_api_key_here") {
+    throw new Error("Gemini API key not configured");
+  }
 
   let lastErr: any;
   for (const model of GEMINI_MODELS) {
     try {
-      const res = await client.models.generateContent({
-        model,
-        contents: prompt,
-      });
-      const text = res.text || "";
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: prompt }] }],
+            generationConfig: {
+              temperature: 0.6,
+              maxOutputTokens: 8192,
+            },
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorBody = await response.text();
+        throw new Error(`Gemini API ${response.status}: ${errorBody}`);
+      }
+
+      const data = await response.json();
+      const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
       if (text.trim()) {
-        console.log(`[AI Engine: Gemini] Response generated with model: ${model}`);
+        console.log(`[AI Engine: Gemini] ✅ Response generated with model: ${model}`);
         return text;
       }
     } catch (err: any) {
